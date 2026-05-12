@@ -7,3 +7,8 @@ loader="generic" # Legacy for before Xen 4.10
 
 memory=128
 kernel="@@XTFDIR@@/tests/@@NAME@@/test-@@ENV@@-@@NAME@@"
+
+# Tests should disappear once they report a result or crash.
+on_poweroff = "destroy"
+on_crash = "destroy"
+on_reboot = "destroy"

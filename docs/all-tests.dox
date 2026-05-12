@@ -13,6 +13,12 @@ than useful test.
 @subpage test-selftest - A set of sanity tests of the framework environment
 and functionality.
 
+@subpage test-nested-svm-l2-vmload-repro - Minimized Xen L2 VMLOAD reproducer.
+
+@subpage test-nested-svm-l2-vmrun-repro - Minimized Xen L2 VMRUN reproducer.
+
+@subpage test-nested-svm-vmrun-hsave-restore-repro - Nested SVM VMRUN teardown reproducer.
+
 
 @section index-functional Functional tests
 
@@ -206,4 +212,10 @@ states.
 @subpage test-nested-svm - Nested SVM tests.
 
 @subpage test-nested-vmx - Nested VT-x tests.
+
+@subpage test-nested-svm-vmrun - Nested SVM VMRUN tests.
+
+@subpage test-nested-svm-vmload-negative - Negative Nested SVM VMLOAD tests.
+
+@subpage test-nested-svm-vmsave-negative - Negative Nested SVM VMSAVE tests.
 */

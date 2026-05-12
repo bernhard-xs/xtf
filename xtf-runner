@@ -5,22 +5,16 @@ xtf-runner - A utility for enumerating and running XTF tests.
 
 Currently assumes the presence and availability of the `xl` toolstack.
 """
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import json
 import os
 import subprocess
 import sys
+import time
+import uuid
 from functools import partial
 from optparse import OptionParser
 from os import path
-from subprocess import PIPE
-
-
-# Python 2/3 compatibility
-if sys.version_info >= (3, ):
-    basestring = str
+from subprocess import DEVNULL, PIPE
 
 
 # Wrap Subprocess functions to use universal_newlines by default
@@ -120,13 +114,13 @@ class TestInfo(object):
         """
 
         name = test_json["name"]
-        if not isinstance(name, basestring):
+        if not isinstance(name, str):
             raise TypeError("Expected string for 'name', got '{0}'"
                             .format(type(name)))
         self.name = name
 
         cat = test_json["category"]
-        if not isinstance(cat, basestring):
+        if not isinstance(cat, str):
             raise TypeError("Expected string for 'category', got '{0}'"
                             .format(type(cat)))
         if not cat in all_categories:
@@ -458,6 +452,135 @@ def interpret_result(logline):
     return "CRASH"
 
 
+def result_has_orderly_guest_exit(result):
+    """Whether a reported result implies the guest requested shutdown itself."""
+    return result in ("SUCCESS", "SKIP", "ERROR", "FAILURE")
+
+
+def domain_exists(test):
+    """Check whether a domain with the test's exact name currently exists."""
+    return (subproc_call(["xl", "domid", test.vm_name()],
+                         stdout = DEVNULL, stderr = DEVNULL) == 0)
+
+
+def domain_state(test):
+    """Return Xen's state string for a domain, or None if unavailable."""
+    domain = Popen(["xl", "list", test.vm_name()], stdout = PIPE,
+                   stderr = DEVNULL)
+    stdout, _ = domain.communicate()
+
+    if domain.returncode:
+        return None
+
+    lines = stdout.splitlines()
+    if len(lines) < 2:
+        return None
+
+    fields = lines[-1].split()
+
+    if len(fields) < 5:
+        return None
+
+    return fields[4]
+
+
+def wait_for_domain_gone(test, timeout = 5.0, step = 0.1):
+    """Wait briefly for Xen to destroy a powered-off guest automatically."""
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        if not domain_exists(test):
+            return True
+        time.sleep(step)
+
+    return not domain_exists(test)
+
+
+def destroy_domain(opts, test, reason):
+    """Destroy a named domain and verify that it is gone afterwards."""
+    cmd = ['xl', 'destroy', test.vm_name()]
+
+    if not opts.quiet:
+        print("Executing '{0}'".format(" ".join(cmd)))
+
+    destroy = Popen(cmd, stdout = PIPE, stderr = PIPE)
+    stdout, stderr = destroy.communicate()
+
+    if destroy.returncode and domain_exists(test):
+        if opts.quiet:
+            print("Executing '{0}'".format(" ".join(cmd)))
+        if stdout:
+            print(stdout, end = "")
+        if stderr:
+            print(stderr, end = "", file = sys.stderr)
+        raise RunnerError("Failed to destroy VM '{0}' during {1}"
+                          .format(test.vm_name(), reason))
+
+
+def quarantine_shutdown_domain(opts, test):
+    """Rename a shutdown/dying residual domain out of the way quickly."""
+    state = domain_state(test)
+
+    if not state or ('r' in state) or ('b' in state):
+        return False
+
+    if ('s' not in state) and ('d' not in state):
+        return False
+
+    cmd = ['xl', 'rename', test.vm_name(),
+           '{0}.stale-{1}'.format(test.vm_name(), uuid.uuid4().hex[:8])]
+
+    rename = Popen(cmd, stdout = PIPE, stderr = PIPE)
+    _, stderr = rename.communicate()
+
+    if rename.returncode:
+        if not opts.quiet and stderr:
+            print(stderr, end = "", file = sys.stderr)
+        return False
+
+    return True
+
+
+def cleanup_residual_domain(opts, test, reason, allow_quarantine = False):
+    """Destroy a residual domain if one exists and report whether cleanup ran."""
+    if not domain_exists(test):
+        return False
+
+    if allow_quarantine and quarantine_shutdown_domain(opts, test):
+        return True
+
+    if wait_for_domain_gone(test):
+        return False
+
+    print("Warning: residual domain '{0}' found {1}; destroying it"
+          .format(test.vm_name(), reason))
+
+    destroy_domain(opts, test, reason)
+
+    if domain_exists(test):
+        raise RunnerError("Residual domain '{0}' remained after cleanup {1}"
+                          .format(test.vm_name(), reason))
+
+    return True
+
+
+def cleanup_tests(opts, tests, reason):
+    """Destroy stale domains for a selection of tests."""
+    if not tests:
+        raise RunnerError("No tests selected for cleanup")
+
+    cleaned = 0
+
+    for test in tests:
+        cleaned += int(cleanup_residual_domain(opts, test, reason))
+
+    if not opts.quiet:
+        print("Cleaned {0} stale domain{1}".format(
+            cleaned, "" if cleaned == 1 else "s"))
+
+    return cleaned
+
+
 def run_test_console(opts, test):
     """ Run a specific, obtaining results via xenconsole """
 
@@ -480,20 +603,32 @@ def run_test_console(opts, test):
 
     console = Popen(cmd, stdout = PIPE)
 
-    cmd = ['xl', 'unpause', test.vm_name()]
-    if not opts.quiet:
-        print("Executing '{0}'".format(" ".join(cmd)))
+    stdout = ""
+    lines = []
+    console_error = None
 
-    rc = subproc_call(cmd)
-    if rc:
-        if opts.quiet:
+    try:
+        cmd = ['xl', 'unpause', test.vm_name()]
+        if not opts.quiet:
             print("Executing '{0}'".format(" ".join(cmd)))
-        raise RunnerError("Failed to unpause VM")
 
-    stdout, _ = console.communicate()
+        rc = subproc_call(cmd)
+        if rc:
+            if opts.quiet:
+                print("Executing '{0}'".format(" ".join(cmd)))
+            raise RunnerError("Failed to unpause VM")
 
-    if console.returncode:
-        raise RunnerError("Failed to obtain VM console")
+        stdout, _ = console.communicate()
+
+        if console.returncode:
+            console_error = RunnerError("Failed to obtain VM console")
+    finally:
+        if console.poll() is None:
+            console.terminate()
+            console.communicate()
+
+    if console_error:
+        raise console_error
 
     lines = stdout.splitlines()
 
@@ -563,7 +698,29 @@ def run_test(opts, test):
         "logfile": run_test_logfile,
     }[opts.results_mode]
 
-    return fn(opts, test)
+    cleanup_residual_domain(opts, test, "before starting the test",
+                            allow_quarantine = True)
+
+    res = None
+    run_exc = None
+
+    try:
+        res = fn(opts, test)
+    except Exception as exc:
+        run_exc = exc
+
+    # A guest which reported a final result has already requested orderly
+    # shutdown.  Xen tears HVM domains down asynchronously, and waiting here
+    # dominates the runtime of short tests.
+    if run_exc is None and result_has_orderly_guest_exit(res):
+        return res
+
+    cleanup_residual_domain(opts, test, "after the test finished")
+
+    if run_exc is not None:
+        raise run_exc
+
+    return res
 
 
 def run_tests(opts):
@@ -732,11 +889,30 @@ def main():
                               "1) No console logs, only test results.  "
                               "2) Not even SUCCESS results."),
                       )
+    parser.add_option("--cleanup-stale", action = "store_true",
+                  dest = "cleanup_stale",
+                  help = ("Destroy stale domains for the selected tests "
+                      "before running them"),
+                  )
+    parser.add_option("--cleanup-only", action = "store_true",
+                  dest = "cleanup_only",
+                  help = ("Destroy stale domains for the selected tests "
+                      "and exit"),
+                  )
 
     opts, args = parser.parse_args()
     opts.args = args
 
+    if opts.list_tests and opts.cleanup_only:
+        raise RunnerError("--cleanup-only does not make sense with --list")
+
     opts.selection = interpret_selection(opts)
+
+    if opts.cleanup_stale or opts.cleanup_only:
+        cleanup_tests(opts, opts.selection, "during explicit cleanup")
+
+    if opts.cleanup_only:
+        return 0
 
     if opts.list_tests:
         return list_tests(opts)
