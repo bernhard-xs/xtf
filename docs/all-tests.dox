@@ -206,4 +206,6 @@ states.
 @subpage test-nested-svm - Nested SVM tests.
 
 @subpage test-nested-vmx - Nested VT-x tests.
+
+@subpage test-nested-svm-vmrun - Nested SVM VMRUN tests.
 */
