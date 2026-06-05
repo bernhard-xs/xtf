@@ -59,6 +59,18 @@ export CC LD CPP INSTALL INSTALL_DATA INSTALL_DIR INSTALL_PROGRAM OBJCOPY PYTHON
 # By default enable all the tests
 TESTS ?= $(wildcard $(ROOT)/tests/*)
 
+ifneq ($(filter metadata-tests nonrecursive-build nonrecursive-install ninja-vars,$(MAKECMDGOALS)),)
+include $(ROOT)/build/load-tests.mk
+endif
+
+ifneq ($(filter nonrecursive-build nonrecursive-install ninja-vars,$(MAKECMDGOALS)),)
+include $(ROOT)/build/common.mk
+endif
+
+ifneq ($(filter nonrecursive-build nonrecursive-install,$(MAKECMDGOALS)),)
+include $(ROOT)/build/emit-tests.mk
+endif
+
 # Convert the selected test directories into explicit top-level targets so GNU
 # make can schedule independent tests in parallel, rather than hiding the work
 # behind one shell loop.
@@ -105,6 +117,37 @@ endef
 cscope:
 	$(all_sources) > cscope.files
 	cscope -b -q -k
+
+.PHONY: metadata-tests
+metadata-tests:
+	@$(if $(REGISTERED_TESTS),:,echo "No test metadata loaded" && false)
+	@$(foreach key,$(REGISTERED_TESTS),printf '%s\n' '$(key): dir=$(TEST_DIR_$(key)) name=$(TEST_NAME_$(key)) category=$(TEST_CATEGORY_$(key)) envs=$(TEST_ENVS_$(key)) extra_cfg=$(TEST_EXTRA_CFG_$(key)) vary_cfg=$(TEST_VARY_CFG_$(key)) vcpus=$(TEST_VCPUS_$(key)) objs=$(TEST_LOCAL_OBJ_PERENV_$(key))';)
+
+.PHONY: nonrecursive-build nonrecursive-install ninja-vars ninja-file ninja-build
+nonrecursive-build: $(NR_BUILD_TARGETS)
+
+nonrecursive-install: $(NR_INSTALL_TARGETS)
+
+ninja-vars:
+	@printf 'global\t%s\t%s\n' ROOT '$(ROOT)'
+	@printf 'global\t%s\t%s\n' CC '$(CC)'
+	@printf 'global\t%s\t%s\n' CPP '$(CPP)'
+	@printf 'global\t%s\t%s\n' LD '$(LD)'
+	@printf 'global\t%s\t%s\n' OBJCOPY '$(OBJCOPY)'
+	@printf 'global\t%s\t%s\n' PYTHON '$(PYTHON)'
+	@printf 'global\t%s\t%s\n' HVM64_FORMAT '$(firstword $(filter elf32-x86-64,$(shell $(OBJCOPY) --help)) elf32-i386)'
+	@printf 'objects\t%s\t%s\n' perbits '$(obj-perbits)'
+	@printf 'objects\t%s\t%s\n' perenv '$(obj-perenv)'
+	@$(foreach env,$(ALL_ENVIRONMENTS),printf 'env\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' '$(env)' '$($(env)_guest)' '$($(env)_arch)' '$(AFLAGS_$($(env)_arch))' '$(CFLAGS_$($(env)_arch))' '$(AFLAGS_$(env))' '$(CFLAGS_$(env))' '$(link-$(env))' '$(LDFLAGS_$(env))' '$(defcfg-$($(env)_guest))';)
+	@$(foreach env,$(ALL_ENVIRONMENTS),printf 'env_objects\t%s\t%s\n' '$(env)' '$(obj-$(env))';)
+	@$(foreach key,$(REGISTERED_TESTS),printf 'test\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' '$(key)' '$(TEST_DIR_$(key))' '$(TEST_NAME_$(key))' '$(TEST_CATEGORY_$(key))' '$(TEST_ENVS_$(key))' '$(TEST_EXTRA_CFG_$(key))' '$(TEST_VARY_CFG_$(key))' '$(TEST_VCPUS_$(key))' '$(TEST_LOCAL_OBJ_PERENV_$(key))';)
+
+ninja-file:
+	@$(MAKE) -s ninja-vars TESTS='$(TESTS)' > $(ROOT)/build/xtf.ninja.vars
+	@cd $(ROOT) && $(PYTHON) build/gen-ninja.py build/xtf.ninja.vars build/xtf.ninja
+
+ninja-build: ninja-file
+	cd $(ROOT) && ninja -f build/xtf.ninja
 
 .PHONY: gtags
 gtags:
