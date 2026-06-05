@@ -1,3 +1,11 @@
+ifeq ($(XTF_METADATA_ONLY),1)
+
+# In metadata-loading mode, the top-level loader already provided the shared
+# environment constants.  This include stays as a compatibility shim so current
+# test Makefiles can be parsed without emitting build rules.
+
+else
+
 ALL_CATEGORIES     := special functional xsa utility in-development nested-svm
 
 ALL_ENVIRONMENTS   := pv64 pv32pae hvm64 hvm32pae hvm32pse hvm32
@@ -46,7 +54,14 @@ endef
 # exist before make includes them so incremental and scan-build runs keep
 # working without requiring a clean tree first.
 define fix-existing-deps
-$(foreach dep,$(1),$(if $(wildcard $(dep)),$(shell sed -E -i 's@(^|[[:space:]\\])([^ /\\][^ :\\]*[/][^ :\\]*:?)@\1$(ROOT)/\2@g' $(dep))))
+$(if $(strip $(1)),$(shell for dep in $(1); do \
+	if [ -f "$$dep" ]; then \
+		set -- "$$@" "$$dep"; \
+	fi; \
+	done; \
+	if [ "$$#" -ne 0 ]; then \
+		sed -E -i 's@(^|[[:space:]\\])([^ /\\][^ :\\]*[/][^ :\\]*:?)@\1$(ROOT)/\2@g' "$$@"; \
+ 	fi))
 endef
 
 cc-option = $(shell if [ -z "`echo 'int p=1;' | $(CC) $(1) -c -o /dev/null -x c - 2>&1`" ]; \
@@ -142,3 +157,5 @@ $(foreach env,$(ALL_ENVIRONMENTS),$(eval $(call PERENV_setup,$(env))))
 define move-if-changed
 	if ! cmp -s $(1) $(2); then mv -f $(1) $(2); else rm -f $(1); fi
 endef
+
+endif
