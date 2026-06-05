@@ -59,21 +59,43 @@ export CC LD CPP INSTALL INSTALL_DATA INSTALL_DIR INSTALL_PROGRAM OBJCOPY PYTHON
 # By default enable all the tests
 TESTS ?= $(wildcard $(ROOT)/tests/*)
 
-.PHONY: all
-all:
-	@set -e; for D in $(TESTS); do \
-		[ ! -e $$D/Makefile ] && continue; \
-		$(MAKE) -C $$D build; \
-	done
+# Convert the selected test directories into explicit top-level targets so GNU
+# make can schedule independent tests in parallel, rather than hiding the work
+# behind one shell loop.
+
+TEST_MAKEFILES := $(wildcard $(TESTS:%=%/Makefile))
+BUILD_TARGETS := $(patsubst %/Makefile,%/.build,$(TEST_MAKEFILES))
+INSTALL_TARGETS := $(patsubst %/Makefile,%/.install,$(TEST_MAKEFILES))
+
+# Multiple test sub-makes rebuild the same objects under common/ and arch/.
+# Seed those shared artefacts once before the parallel fan-out, but skip the
+# bootstrap entirely when only one test was selected so TESTS filtering keeps
+# its expected no-op behaviour.
+
+ifneq ($(word 2,$(BUILD_TARGETS)),)
+SHARED_BOOTSTRAP_TARGET := $(firstword $(BUILD_TARGETS:.build=.shared-ready))
+endif
+
+.PHONY: all $(BUILD_TARGETS) $(INSTALL_TARGETS)
+all: $(SHARED_BOOTSTRAP_TARGET) $(BUILD_TARGETS)
+
+# Leading '+' preserves jobserver recursion when the parent was run with -j.
+$(SHARED_BOOTSTRAP_TARGET):
+	+$(MAKE) -C $(@D) build
+
+# Each selected test directory now appears as a first-class prerequisite.
+$(BUILD_TARGETS): | $(SHARED_BOOTSTRAP_TARGET)
+	+$(MAKE) -C $(@D) build
 
 .PHONY: install
 install:
 	@$(INSTALL_DIR) $(DESTDIR)$(xtfdir)
 	$(INSTALL_PROGRAM) xtf-runner $(DESTDIR)$(xtfdir)
-	@set -e; for D in $(TESTS); do \
-		[ ! -e $$D/Makefile ] && continue; \
-		$(MAKE) -C $$D install; \
-	done
+
+install: $(SHARED_BOOTSTRAP_TARGET) $(INSTALL_TARGETS)
+
+$(INSTALL_TARGETS): | $(SHARED_BOOTSTRAP_TARGET)
+	+$(MAKE) -C $(@D) install
 
 define all_sources
 	find include/ arch/ common/ tests/ -name "*.[hcsS]"
