@@ -17,7 +17,36 @@ $(foreach env,$(64BIT_ENVIRONMENTS),$(eval $(env)_arch := x86_64))
 
 comma := ,
 
-COMMON_FLAGS := -pipe -nostdinc -I$(ROOT)/include -I$(ROOT)/arch/x86/include -MMD -MP
+COMMON_FLAGS := -pipe -nostdinc -Iinclude -Iarch/x86/include -MMD -MP
+
+# Compile from the repository root so diagnostics use workspace-relative paths
+# even when the owning makefile lives in a test subdirectory.
+CURDIR_REL := $(patsubst $(ROOT)/%,%,$(CURDIR))
+
+# Convert make's per-test view of a path into the root-relative spelling used
+# on the compiler command line after `cd $(ROOT)`.
+root-path = $(patsubst $(ROOT)/%,%,$(if $(filter /%,$(1)),$(1),$(if $(CURDIR_REL),$(CURDIR_REL)/$(1),$(1))))
+
+# Dependency files still live next to their outputs so the existing `-include`
+# sites keep working from recursive sub-makes, but we address them via an
+# absolute path while generating them from the repository root.
+dep-path = $(call root-path,$(patsubst %.o,%.d,$(patsubst %.lds,%.d,$(1))))
+dep-file = $(if $(filter /%,$(1)),$(patsubst %.o,%.d,$(patsubst %.lds,%.d,$(1))),$(ROOT)/$(call dep-path,$(1)))
+
+# GCC now writes root-relative prerequisites into the depfile because the
+# compiler runs from $(ROOT).  Rewrite them back to absolute paths so the
+# existing recursive makefiles can reload the same depfiles from any directory.
+define fix-deps
+	sed -E -i 's@(^|[[:space:]\\])([^ /\\][^ :\\]*/[^ :\\]*:?)@\1$(ROOT)/\2@g' $(1)
+endef
+
+# After changing the command cwd to $(ROOT), older depfiles may still contain
+# now-invalid root-relative prerequisites.  Normalize any depfiles that already
+# exist before make includes them so incremental and scan-build runs keep
+# working without requiring a clean tree first.
+define fix-existing-deps
+$(foreach dep,$(1),$(if $(wildcard $(dep)),$(shell sed -E -i 's@(^|[[:space:]\\])([^ /\\][^ :\\]*[/][^ :\\]*:?)@\1$(ROOT)/\2@g' $(dep))))
+endef
 
 cc-option = $(shell if [ -z "`echo 'int p=1;' | $(CC) $(1) -c -o /dev/null -x c - 2>&1`" ]; \
 			then echo y; else echo n; fi)
@@ -73,23 +102,37 @@ DEPS-$(1) = \
 
 # Generate .lds with appropriate flags
 %/link-$(1).lds: $(ROOT)/common/link.lds.S
-	$$(CPP) $$(AFLAGS_$(1)) -P $$< -o $$@
+	# Run the preprocessor from $(ROOT) so diagnostics mention e.g. arch/...
+	# and tests/... instead of paths relative to the current test directory.
+	cd $(ROOT) && $$(CPP) $$(AFLAGS_$(1)) -MT $$@ -MF $$(call dep-file,$$@) -P \
+		$$(call root-path,$$<) -o $$(call root-path,$$@)
+	$$(call fix-deps,$$(call dep-file,$$@))
 
 # Generate a per-arch .o from .S
 %-$($(1)_arch).o: %.S
-	$$(CC) $$(AFLAGS_$($(1)_arch)) -c $$< -o $$@
+	# The command runs from $(ROOT), but the target name remains the original
+	# object path so the rest of the dependency graph does not change.
+	cd $(ROOT) && $$(CC) $$(AFLAGS_$($(1)_arch)) -MT $$@ -MF $$(call dep-file,$$@) -c \
+		$$(call root-path,$$<) -o $$(call root-path,$$@)
+	$$(call fix-deps,$$(call dep-file,$$@))
 
 # Generate a per-arch .o from .c
 %-$($(1)_arch).o: %.c
-	$$(CC) $$(CFLAGS_$($(1)_arch)) -c $$< -o $$@
+	cd $(ROOT) && $$(CC) $$(CFLAGS_$($(1)_arch)) -MT $$@ -MF $$(call dep-file,$$@) -c \
+		$$(call root-path,$$<) -o $$(call root-path,$$@)
+	$$(call fix-deps,$$(call dep-file,$$@))
 
 # Generate a per-env .o from .S
 %-$(1).o: %.S
-	$$(CC) $$(AFLAGS_$(1)) -c $$< -o $$@
+	cd $(ROOT) && $$(CC) $$(AFLAGS_$(1)) -MT $$@ -MF $$(call dep-file,$$@) -c \
+		$$(call root-path,$$<) -o $$(call root-path,$$@)
+	$$(call fix-deps,$$(call dep-file,$$@))
 
 # Generate a per-env .o from .c
 %-$(1).o: %.c
-	$$(CC) $$(CFLAGS_$(1)) -c $$< -o $$@
+	cd $(ROOT) && $$(CC) $$(CFLAGS_$(1)) -MT $$@ -MF $$(call dep-file,$$@) -c \
+		$$(call root-path,$$<) -o $$(call root-path,$$@)
+	$$(call fix-deps,$$(call dep-file,$$@))
 
 endef
 
