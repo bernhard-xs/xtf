@@ -11,7 +11,7 @@ import sys
 _, out, defcfg, vcpus, extracfg, varycfg = sys.argv
 
 # Evaluate environment and name from $OUT
-_, env, name = out.split('.')[0].split('-', 2)
+_, env, name = os.path.basename(out).split('.')[0].split('-', 2)
 
 # Possibly split apart the variation suffix
 variation = ''
