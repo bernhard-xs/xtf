@@ -59,11 +59,11 @@ export CC LD CPP INSTALL INSTALL_DATA INSTALL_DIR INSTALL_PROGRAM OBJCOPY PYTHON
 # By default enable all the tests
 TESTS ?= $(wildcard $(ROOT)/tests/*)
 
-ifneq ($(filter metadata-tests nonrecursive-build nonrecursive-install ninja-vars,$(MAKECMDGOALS)),)
+ifneq ($(filter metadata-tests nonrecursive-build nonrecursive-install ninja-vars ninja-file ninja-build,$(MAKECMDGOALS)),)
 include $(ROOT)/build/load-tests.mk
 endif
 
-ifneq ($(filter nonrecursive-build nonrecursive-install ninja-vars,$(MAKECMDGOALS)),)
+ifneq ($(filter nonrecursive-build nonrecursive-install ninja-vars ninja-file ninja-build,$(MAKECMDGOALS)),)
 include $(ROOT)/build/common.mk
 endif
 
@@ -123,6 +123,21 @@ metadata-tests:
 	@$(if $(REGISTERED_TESTS),:,echo "No test metadata loaded" && false)
 	@$(foreach key,$(REGISTERED_TESTS),printf '%s\n' '$(key): dir=$(TEST_DIR_$(key)) name=$(TEST_NAME_$(key)) category=$(TEST_CATEGORY_$(key)) envs=$(TEST_ENVS_$(key)) extra_cfg=$(TEST_EXTRA_CFG_$(key)) vary_cfg=$(TEST_VARY_CFG_$(key)) vcpus=$(TEST_VCPUS_$(key)) objs=$(TEST_LOCAL_OBJ_PERENV_$(key))';)
 
+NINJA_CONTEXT_HASH := $(shell printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' '$(sort $(TESTS))' '$(CC)' '$(CPP)' '$(LD)' '$(OBJCOPY)' '$(PYTHON)' '$(LLVM)' '$(CROSS_COMPILE)' | sha1sum | cut -d' ' -f1)
+NINJA_CONTEXT_STAMP := $(ROOT)/build/.xtf.ninja.$(NINJA_CONTEXT_HASH).context
+NINJA_VARS_FILE := $(ROOT)/build/xtf.ninja.vars
+NINJA_FILE := $(ROOT)/build/xtf.ninja
+NINJA_METADATA_INPUTS := \
+	$(ROOT)/Makefile \
+	$(ROOT)/build/common.mk \
+	$(ROOT)/build/core.mk \
+	$(ROOT)/build/files.mk \
+	$(ROOT)/build/gen.mk \
+	$(ROOT)/build/load-tests.mk \
+	$(ROOT)/build/gen-ninja.py \
+	$(TEST_MAKEFILES) \
+	$(wildcard $(ROOT)/Makefile.local)
+
 .PHONY: nonrecursive-build nonrecursive-install ninja-vars ninja-file ninja-build
 nonrecursive-build: $(NR_BUILD_TARGETS)
 
@@ -142,12 +157,22 @@ ninja-vars:
 	@$(foreach env,$(ALL_ENVIRONMENTS),printf 'env_objects\t%s\t%s\n' '$(env)' '$(obj-$(env))';)
 	@$(foreach key,$(REGISTERED_TESTS),printf 'test\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' '$(key)' '$(TEST_DIR_$(key))' '$(TEST_NAME_$(key))' '$(TEST_CATEGORY_$(key))' '$(TEST_ENVS_$(key))' '$(TEST_EXTRA_CFG_$(key))' '$(TEST_VARY_CFG_$(key))' '$(TEST_VCPUS_$(key))' '$(TEST_LOCAL_OBJ_PERENV_$(key))';)
 
-ninja-file:
-	@$(MAKE) -s ninja-vars TESTS='$(TESTS)' > $(ROOT)/build/xtf.ninja.vars
-	@cd $(ROOT) && $(PYTHON) build/gen-ninja.py build/xtf.ninja.vars build/xtf.ninja
+$(NINJA_CONTEXT_STAMP):
+	@mkdir -p $(dir $@)
+	@: > $@
+
+$(NINJA_VARS_FILE): $(NINJA_CONTEXT_STAMP) $(NINJA_METADATA_INPUTS)
+	@$(MAKE) -s ninja-vars TESTS='$(TESTS)' > $@.tmp
+	@if ! cmp -s $@.tmp $@ 2>/dev/null; then mv -f $@.tmp $@; else rm -f $@.tmp; fi
+
+$(NINJA_FILE): $(NINJA_VARS_FILE)
+	@cd $(ROOT) && $(PYTHON) build/gen-ninja.py $(NINJA_VARS_FILE) $@.tmp
+	@if ! cmp -s $@.tmp $@ 2>/dev/null; then mv -f $@.tmp $@; else rm -f $@.tmp; fi
+
+ninja-file: $(NINJA_FILE)
 
 ninja-build: ninja-file
-	cd $(ROOT) && ninja -f build/xtf.ninja
+	cd $(ROOT) && ninja -f $(NINJA_FILE)
 
 .PHONY: gtags
 gtags:
@@ -158,6 +183,7 @@ clean:
 	find . \( -name "*.o" -o -name "*.d" -o -name "*.lds" \) -delete
 	find tests/ \( -perm -a=x -name "test-*" -o -name "test-*.cfg" \
 		-o -name "info.json" \) -delete
+	rm -f $(ROOT)/build/.xtf.ninja.*.context $(NINJA_VARS_FILE) $(NINJA_FILE)
 
 .PHONY: distclean
 distclean: clean
