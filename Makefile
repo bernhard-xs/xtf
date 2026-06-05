@@ -59,15 +59,30 @@ export CC LD CPP INSTALL INSTALL_DATA INSTALL_DIR INSTALL_PROGRAM OBJCOPY PYTHON
 # By default enable all the tests
 TESTS ?= $(wildcard $(ROOT)/tests/*)
 
-ifneq ($(filter metadata-tests nonrecursive-build nonrecursive-install ninja-vars ninja-file ninja-build,$(MAKECMDGOALS)),)
+# Prefer Ninja when it is available, but keep the recursive make path as the
+# fallback and as an explicit override via USE_NINJA=0.
+NINJA_AVAILABLE := $(if $(shell command -v ninja 2>/dev/null),1,0)
+USE_NINJA ?= $(NINJA_AVAILABLE)
+
+ACTIVE_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
+NINJA_GOALS := ninja-vars ninja-file ninja-build ninja-install
+METADATA_GOALS := metadata-tests nonrecursive-build nonrecursive-install $(NINJA_GOALS)
+COMMON_GOALS := nonrecursive-build nonrecursive-install $(NINJA_GOALS)
+
+ifeq ($(USE_NINJA),1)
+METADATA_GOALS += all install
+COMMON_GOALS += all install
+endif
+
+ifneq ($(filter $(METADATA_GOALS),$(ACTIVE_GOALS)),)
 include $(ROOT)/build/load-tests.mk
 endif
 
-ifneq ($(filter nonrecursive-build nonrecursive-install ninja-vars ninja-file ninja-build,$(MAKECMDGOALS)),)
+ifneq ($(filter $(COMMON_GOALS),$(ACTIVE_GOALS)),)
 include $(ROOT)/build/common.mk
 endif
 
-ifneq ($(filter nonrecursive-build nonrecursive-install,$(MAKECMDGOALS)),)
+ifneq ($(filter nonrecursive-build nonrecursive-install,$(ACTIVE_GOALS)),)
 include $(ROOT)/build/emit-tests.mk
 endif
 
@@ -87,6 +102,15 @@ INSTALL_TARGETS := $(patsubst %/Makefile,%/.install,$(TEST_MAKEFILES))
 ifneq ($(word 2,$(BUILD_TARGETS)),)
 SHARED_BOOTSTRAP_TARGET := $(firstword $(BUILD_TARGETS:.build=.shared-ready))
 endif
+
+ifeq ($(USE_NINJA),1)
+
+.PHONY: all install
+all: ninja-build
+
+install: ninja-install
+
+else
 
 .PHONY: all $(BUILD_TARGETS) $(INSTALL_TARGETS)
 all: $(SHARED_BOOTSTRAP_TARGET) $(BUILD_TARGETS)
@@ -108,6 +132,8 @@ install: $(SHARED_BOOTSTRAP_TARGET) $(INSTALL_TARGETS)
 
 $(INSTALL_TARGETS): | $(SHARED_BOOTSTRAP_TARGET)
 	+$(MAKE) -C $(@D) install
+
+endif
 
 define all_sources
 	find include/ arch/ common/ tests/ -name "*.[hcsS]"
@@ -138,7 +164,7 @@ NINJA_METADATA_INPUTS := \
 	$(TEST_MAKEFILES) \
 	$(wildcard $(ROOT)/Makefile.local)
 
-.PHONY: nonrecursive-build nonrecursive-install ninja-vars ninja-file ninja-build
+.PHONY: nonrecursive-build nonrecursive-install ninja-vars ninja-file ninja-build ninja-install
 nonrecursive-build: $(NR_BUILD_TARGETS)
 
 nonrecursive-install: $(NR_INSTALL_TARGETS)
@@ -150,6 +176,13 @@ ninja-vars:
 	@printf 'global\t%s\t%s\n' LD '$(LD)'
 	@printf 'global\t%s\t%s\n' OBJCOPY '$(OBJCOPY)'
 	@printf 'global\t%s\t%s\n' PYTHON '$(PYTHON)'
+	@printf 'global\t%s\t%s\n' DESTDIR '$(DESTDIR)'
+	@printf 'global\t%s\t%s\n' xtfdir '$(xtfdir)'
+	@printf 'global\t%s\t%s\n' xtftestdir '$(xtftestdir)'
+	@printf 'global\t%s\t%s\n' INSTALL '$(INSTALL)'
+	@printf 'global\t%s\t%s\n' INSTALL_DATA '$(INSTALL_DATA)'
+	@printf 'global\t%s\t%s\n' INSTALL_DIR '$(INSTALL_DIR)'
+	@printf 'global\t%s\t%s\n' INSTALL_PROGRAM '$(INSTALL_PROGRAM)'
 	@printf 'global\t%s\t%s\n' HVM64_FORMAT '$(firstword $(filter elf32-x86-64,$(shell $(OBJCOPY) --help)) elf32-i386)'
 	@printf 'objects\t%s\t%s\n' perbits '$(obj-perbits)'
 	@printf 'objects\t%s\t%s\n' perenv '$(obj-perenv)'
@@ -165,7 +198,7 @@ $(NINJA_VARS_FILE): $(NINJA_CONTEXT_STAMP) $(NINJA_METADATA_INPUTS)
 	@$(MAKE) -s ninja-vars TESTS='$(TESTS)' > $@.tmp
 	@if ! cmp -s $@.tmp $@ 2>/dev/null; then mv -f $@.tmp $@; else rm -f $@.tmp; fi
 
-$(NINJA_FILE): $(NINJA_VARS_FILE)
+$(NINJA_FILE): $(NINJA_VARS_FILE) $(ROOT)/build/gen-ninja.py
 	@cd $(ROOT) && $(PYTHON) build/gen-ninja.py $(NINJA_VARS_FILE) $@.tmp
 	@if ! cmp -s $@.tmp $@ 2>/dev/null; then mv -f $@.tmp $@; else rm -f $@.tmp; fi
 
@@ -173,6 +206,9 @@ ninja-file: $(NINJA_FILE)
 
 ninja-build: ninja-file
 	cd $(ROOT) && ninja -f $(NINJA_FILE)
+
+ninja-install: ninja-file
+	cd $(ROOT) && ninja -f $(NINJA_FILE) install
 
 .PHONY: gtags
 gtags:
