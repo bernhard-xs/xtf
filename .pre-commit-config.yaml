@@ -33,6 +33,41 @@ repos:
         args: ['--fix=lf']
     -   id: trailing-whitespace
 
+
+# This is the pre-commit hook to run black, the Python code formatter.
+-   repo: https://github.com/psf/black
+    rev: 26.5.1
+    hooks:
+    -   id: black
+        # We use the --skip-string-normalization option to preserve the
+        # minimise churn initially, leaving string normalization for
+        # later cleanup commit to not mix with the formatting changes.
+        args: ['--skip-string-normalization']
+        # To keep initial formatting limited in scope, skip the runner for now.
+        exclude: xtf-runner
+
+
+# This is the isort hook recommended for use with black
+-   repo: https://github.com/pycqa/isort
+    rev: 8.0.1
+    hooks:
+      - id: isort
+        args: ['--profile', 'black']
+
+
+# This is the flake8 hook used by black itself:
+-   repo: https://github.com/pycqa/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+        additional_dependencies:
+          - flake8-bugbear
+          - flake8-comprehensions
+          - flake8-simplify
+        # To keep initial cleanup limited in scope, skip the runner for now.
+        exclude: xtf-runner
+
+
 -   repo: local
     hooks:
     -   id: git-diff # https://github.com/pre-commit/pre-commit/issues/1712
