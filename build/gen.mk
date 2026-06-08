@@ -1,3 +1,8 @@
+ifeq ($(XTF_METADATA_ONLY),1)
+
+# In metadata-loading mode, this file is a compatibility shim only.
+
+else
 
 # Sanity checking of expected parameters
 
@@ -115,3 +120,5 @@ clean:
 
 .PHONY: FORCE
 FORCE:
+
+endif

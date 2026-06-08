@@ -1,3 +1,11 @@
+ifeq ($(XTF_METADATA_ONLY),1)
+
+# In metadata-loading mode, the top-level loader already provided the shared
+# environment constants.  This include stays as a compatibility shim so current
+# test Makefiles can be parsed without emitting build rules.
+
+else
+
 ALL_CATEGORIES     := special functional xsa utility in-development
 
 ALL_ENVIRONMENTS   := pv64 pv32pae hvm64 hvm32pae hvm32pse hvm32
@@ -122,3 +130,5 @@ $(foreach env,$(ALL_ENVIRONMENTS),$(eval $(call PERENV_setup,$(env))))
 define move-if-changed
 	if ! cmp -s $(1) $(2); then mv -f $(1) $(2); else rm -f $(1); fi
 endef
+
+endif
