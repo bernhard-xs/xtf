@@ -3,6 +3,7 @@
 Construct an xl configuration file for a test (from various fragments), and
 substitue variables appropriately.
 """
+
 import os
 import sys
 
@@ -18,26 +19,32 @@ if '~' in name:
     parts = name.split('~', 1)
     name, variation = parts[0], '~' + parts[1]
 
-def expand(text):
-    """ Expand certain variables in text """
-    return (text
-            .replace("@@NAME@@",   name)
-            .replace("@@ENV@@",    env)
-            .replace("@@VCPUS@@",  vcpus)
-            .replace("@@XTFDIR@@", os.environ["xtfdir"])
-            .replace("@@VARIATION@@", variation)
-        )
 
-config = open(defcfg).read()
+def expand(text):
+    """Expand certain variables in text"""
+    return (
+        text.replace("@@NAME@@", name)
+        .replace("@@ENV@@", env)
+        .replace("@@VCPUS@@", vcpus)
+        .replace("@@XTFDIR@@", os.environ["xtfdir"])
+        .replace("@@VARIATION@@", variation)
+    )
+
+
+with open(defcfg) as f:
+    config = f.read()
 
 if extracfg:
     config += "\n# Test Extra Configuration:\n"
-    config += open(extracfg).read()
+    with open(extracfg) as f:
+        config += f.read()
 
 if varycfg:
     config += "\n# Test Variation Configuration:\n"
-    config += open(varycfg).read()
+    with open(varycfg) as f:
+        config += f.read()
 
 cfg = expand(config)
 
-open(out, "w").write(cfg)
+with open(out, "w") as f:
+    f.write(cfg)

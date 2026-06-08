@@ -12,14 +12,12 @@ template = {
     "category": cat,
     "environments": [],
     "variations": [],
-    }
+}
 
 if envs:
     template["environments"] = envs.split(" ")
 if variations:
     template["variations"] = variations.split(" ")
 
-open(out, "w").write(
-    json.dumps(template, indent=4, separators=(',', ': '))
-    + "\n"
-    )
+with open(out, "w") as f:
+    f.write(json.dumps(template, indent=4, separators=(",", ": ")) + "\n")
