@@ -5,8 +5,6 @@ xtf-runner - A utility for enumerating and running XTF tests.
 
 Currently assumes the presence and availability of the `xl` toolstack.
 """
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import json
 import os
@@ -16,12 +14,6 @@ from functools import partial
 from optparse import OptionParser
 from os import path
 from subprocess import PIPE
-
-
-# Python 2/3 compatibility
-if sys.version_info >= (3, ):
-    basestring = str
-
 
 # Wrap Subprocess functions to use universal_newlines by default
 Popen        = partial(subprocess.Popen, universal_newlines = True)
@@ -120,13 +112,13 @@ class TestInfo(object):
         """
 
         name = test_json["name"]
-        if not isinstance(name, basestring):
+        if not isinstance(name, str):
             raise TypeError("Expected string for 'name', got '{0}'"
                             .format(type(name)))
         self.name = name
 
         cat = test_json["category"]
-        if not isinstance(cat, basestring):
+        if not isinstance(cat, str):
             raise TypeError("Expected string for 'category', got '{0}'"
                             .format(type(cat)))
         if not cat in all_categories:
