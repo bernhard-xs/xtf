@@ -40,7 +40,7 @@ def exit_code(state):
     }[state]
 
 # All test categories
-default_categories     = {"functional", "xsa"}
+default_categories     = {"functional", "xsa", "nested-svm"}
 non_default_categories = {"special", "utility", "in-development"}
 all_categories         = default_categories | non_default_categories
 
