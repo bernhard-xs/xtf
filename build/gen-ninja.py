@@ -284,6 +284,23 @@ def emit_build(
     lines.append("")
 
 
+def python_modules(root: str, package: str) -> list[str]:
+    """Return Python source files under package, excluding cache directories."""
+
+    modules: list[str] = []
+    package_root = os.path.join(root, package)
+
+    for dirpath, dirnames, filenames in os.walk(package_root):
+        dirnames[:] = [name for name in dirnames if name != "__pycache__"]
+
+        for filename in filenames:
+            if not filename.endswith(".py"):
+                continue
+            modules.append(os.path.relpath(os.path.join(dirpath, filename), root))
+
+    return sorted(modules)
+
+
 def build_ninja(
     root: str,
     globals_map: dict[str, str],
@@ -646,6 +663,17 @@ def build_ninja(
         {"outdir": os.path.dirname(runner_install)},
     )
     install_targets.append(runner_install)
+
+    for module in python_modules(root, "xtf"):
+        module_install = os.path.join(to_rel(root, install_xtfdir), module)
+        emit_build(
+            lines,
+            module_install,
+            "install_data",
+            [module],
+            {"outdir": os.path.dirname(module_install)},
+        )
+        install_targets.append(module_install)
 
     emit_phony(lines, "build", build_targets)
     emit_phony(lines, "install", install_targets)

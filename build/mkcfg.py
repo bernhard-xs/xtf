@@ -20,7 +20,7 @@ if '~' in name:
     name, variation = parts[0], '~' + parts[1]
 
 
-def expand(text):
+def expand(text: str) -> str:
     """Expand certain variables in text"""
     return (
         text.replace("@@NAME@@", name)

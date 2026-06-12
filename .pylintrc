@@ -45,7 +45,7 @@ enable=unneeded-not,consider-using-set-comprehension
 # --enable=similarities". If you want to run only the classes checker, but have
 # no Warning level messages displayed, use"--disable=all --enable=classes
 # --disable=W"
-disable=import-error,global-statement,unspecified-encoding,consider-using-f-string
+disable=import-error,global-statement,unspecified-encoding
 
 
 [REPORTS]
@@ -241,6 +241,7 @@ valid-metaclass-classmethod-first-arg=mcs
 
 # Maximum number of arguments for function / method
 max-args=7
+max-positional-arguments=7
 
 # Argument names that match this expression will be ignored. Default to name
 # with leading underscore
