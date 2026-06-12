@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""Generate test info JSON files from command-line arguments."""
+
 import json
 import sys
 
