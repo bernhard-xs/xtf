@@ -123,6 +123,12 @@ $(BUILD_TARGETS): | $(SHARED_BOOTSTRAP_TARGET)
 install:
 	@$(INSTALL_DIR) $(DESTDIR)$(xtfdir)
 	$(INSTALL_PROGRAM) xtf-runner $(DESTDIR)$(xtfdir)
+	@find xtf -path '*/__pycache__' -prune -o -name '*.py' -print | \
+		while read -r f; do \
+			d="$(DESTDIR)$(xtfdir)/$$(dirname "$$f")"; \
+			$(INSTALL_DIR) "$$d"; \
+			$(INSTALL_DATA) "$$f" "$$d"; \
+		done
 
 install: $(SHARED_BOOTSTRAP_TARGET) $(INSTALL_TARGETS)
 
@@ -261,4 +267,8 @@ doxygen: Doxyfile
 
 .PHONY: pylint
 pylint:
-	-pylint --rcfile=.pylintrc xtf-runner
+	-pylint --rcfile=.pylintrc xtf-runner xtf
+
+.PHONY: runner-selftest
+runner-selftest:
+	$(PYTHON) -m xtf.runner.selftest

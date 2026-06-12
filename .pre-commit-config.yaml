@@ -42,8 +42,6 @@ repos:
         # minimise churn initially, leaving string normalization for
         # later cleanup commit to not mix with the formatting changes.
         args: ['--skip-string-normalization']
-        # To keep initial formatting limited in scope, skip the runner for now.
-        exclude: xtf-runner
 
 
 # This is the isort hook recommended for use with black
@@ -63,10 +61,28 @@ repos:
           - flake8-bugbear
           - flake8-comprehensions
           - flake8-simplify
-        # To keep initial cleanup limited in scope, skip the runner for now.
-        exclude: xtf-runner
 
 
+# This is the mypy hook:
+-   repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.1.0
+    hooks:
+      - id: mypy
+        args: [--strict]
+        exclude: ^docs/gdb-test-fw/reference/
+        additional_dependencies:
+          - pytest
+          - types-gdb
+
+
+# This is the pylint hook:
+-   repo: https://github.com/PyCQA/pylint
+    rev: v4.0.5
+    hooks:
+      - id: pylint
+
+
+# Custom hook to show not staged changes, which may be caused by fixup commits.
 -   repo: local
     hooks:
     -   id: git-diff # https://github.com/pre-commit/pre-commit/issues/1712
