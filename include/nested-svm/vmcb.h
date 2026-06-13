@@ -1,6 +1,6 @@
 /* Shared minimal VMCB definitions for nested-SVM tests. */
-#ifndef XTF_TESTS_NESTED_SVM_VMCB_H
-#define XTF_TESTS_NESTED_SVM_VMCB_H
+#ifndef XTF_NESTED_SVM_VMCB_H
+#define XTF_NESTED_SVM_VMCB_H
 
 #include <xtf/types.h>
 
@@ -10,6 +10,63 @@ struct vmcb_seg {
     uint32_t limit;
     uint64_t base;
 };
+
+/* VMCB 0x060: Virtual Interrupt Control to inject virtual interrupts */
+typedef union {
+    uint64_t bytes;
+    struct {
+        uint64_t v_tpr          : 8;  /* 0:7   - Virtual Task Priority Register */
+        uint64_t v_irq          : 1;  /* 8     - Virtual Interrupt Request */
+        uint64_t v_gif          : 1;  /* 9     - Virtual Global Interrupt Flag */
+        uint64_t reserved_1     : 1;  /* 10    - Reserved */
+        uint64_t vnmi_pending   : 1;  /* 11    - Virtual NMI Pending */
+        uint64_t vnmi_blocking  : 1;  /* 12    - Virtual NMI Blocking */
+        uint64_t reserved_2     : 3;  /* 13:15 - Reserved */
+        uint64_t v_intr_prio    : 4;  /* 16:19 - Virtual Interrupt Priority */
+        uint64_t v_ign_tpr      : 1;  /* 20    - Virtual Ignore TPR */
+        uint64_t reserved_3     : 3;  /* 21:23 - Reserved */
+        uint64_t v_intr_masking : 1;  /* 24    - Virtual Interrupt Masking */
+        uint64_t v_gif_enable   : 1;  /* 25    - Virtual GIF Enable */
+        uint64_t vnmi_enable    : 1;  /* 26    - Virtual NMI Enable */
+        uint64_t reserved_4     : 5;  /* 27:31 - Reserved (Bit 27 is AVIC_ENABLE on newer CPUs) */
+        uint64_t v_intr_vector  : 8;  /* 32:39 - Virtual Interrupt Vector */
+        uint64_t reserved_5     : 24; /* 40:63 - Reserved */
+    } __attribute__((packed)) fields;
+} v_intr_ctrl_t;
+
+/* Function to print all bits of v_intr_ctrl_t */
+static inline void print_v_intr_ctrl(v_intr_ctrl_t ctrl, const char *prefix)
+{
+    printk("IRQ-ctrl");
+    if (prefix)
+        printk(" %s", prefix);
+    printk(":");
+    /* Print a list of the bits which are set: */
+    if (ctrl.fields.v_intr_prio)
+        printk(" prio:%u", ctrl.fields.v_intr_prio);                
+    if (ctrl.fields.v_intr_vector)
+        printk(" vec:%x", ctrl.fields.v_intr_vector);
+    if (ctrl.fields.vnmi_enable)
+        printk(" vNMI-enabled");                
+    if (ctrl.fields.v_gif_enable)
+        printk(" vGIF:%u", ctrl.fields.v_gif);
+    if (ctrl.fields.v_irq)
+        printk(" IRQ-pending");
+    if (ctrl.fields.vnmi_pending)
+        printk(" vnmi_pending");
+    if (ctrl.fields.vnmi_blocking)
+        printk(" vnmi_blocking");
+
+    if (ctrl.fields.v_tpr)
+        printk(" tpr=%u", ctrl.fields.v_tpr);
+    if (ctrl.fields.v_ign_tpr)
+        printk(" ign_tpr");
+    if (ctrl.fields.v_intr_masking)
+        printk(" intr_masking");
+
+
+    printk("\n");
+}
 
 struct vmcb {
     uint16_t intercept_read_cr;
@@ -29,7 +86,8 @@ struct vmcb {
     uint32_t asid;
     uint8_t  tlb_control;
     uint8_t  _pad_05d[3];
-    uint64_t vintr;
+    /* 0x060: Virtual Interrupt Control to inject virtual interrupts */
+    v_intr_ctrl_t v_intr_ctrl;
     uint64_t int_state;
     uint64_t exitcode;
     uint64_t exitinfo1;
@@ -37,6 +95,7 @@ struct vmcb {
     uint64_t exit_int_info;
     uint64_t np_enable;
     uint8_t  _pad_098[0x0a8 - 0x098];
+    /* 0x0a8: Event Injection */
     uint64_t event_inj;
     uint64_t h_cr3;
     uint8_t  _pad_0b8[0x400 - 0x0b8];
@@ -75,6 +134,7 @@ struct vmcb {
 VMCB_CHECK(intercept_insns_vec3, 0x00c);
 VMCB_CHECK(intercept_insns_vec4, 0x010);
 VMCB_CHECK(asid,                 0x058);
+VMCB_CHECK(v_intr_ctrl,          0x060);
 VMCB_CHECK(exitcode,             0x070);
 VMCB_CHECK(es,                   0x400);
 VMCB_CHECK(gdtr,                 0x460);
@@ -102,14 +162,16 @@ _Static_assert(sizeof(struct vmcb) == 0x1000, "VMCB size != 4 KiB");
 #define VMEXIT_VMRUN                    0x080
 #define VMEXIT_VMMCALL                  0x081
 
-#endif /* XTF_TESTS_NESTED_SVM_VMCB_H */
+/* Get the vmexit reason */
+static const char __used *vmexit_reason(uint64_t exitcode)
+{
+    switch (exitcode) {
+    case VMEXIT_HLT:      return "HLT";
+    case VMEXIT_SHUTDOWN: return "SHUTDOWN";
+    case VMEXIT_VMRUN:    return "VMRUN";
+    case VMEXIT_VMMCALL:  return "VMMCALL";
+    default:              return "UNKNOWN";
+    }
+}
 
-/*
- * Local variables:
- * mode: C
- * c-file-style: "BSD"
- * c-basic-offset: 4
- * tab-width: 4
- * indent-tabs-mode: nil
- * End:
- */
+#endif /* XTF_NESTED_SVM_VMCB_H */

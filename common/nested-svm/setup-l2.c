@@ -17,7 +17,10 @@ uint8_t hsave[PAGE_SIZE] __page_aligned_bss;
 /* Stack used by L2.  Two pages of backing store. */
 uint8_t l2_stack[2 * PAGE_SIZE] __page_aligned_bss;
 
+/* Private IDT used by L2 guests in nested-SVM tests. */
+static env_gate l2_idt[256] __page_aligned_bss;
 
+/* Build a segment descriptor for the VMCB from a user descriptor. */
 static uint16_t user_desc_vmcb_attr(const user_desc *desc)
 {
     return desc->type |
@@ -31,11 +34,13 @@ static uint16_t user_desc_vmcb_attr(const user_desc *desc)
         (desc->g << 15);
 }
 
+/* Check if a selector is null. */
 static bool selector_is_null(uint16_t sel)
 {
     return !(sel & ~(X86_SEL_TI | X86_SEL_RPL_MASK));
 }
 
+/* Mark a segment as unusable in the VMCB. */
 static void vmcb_set_seg_unusable(struct vmcb_seg *seg, uint16_t sel)
 {
     seg->sel = sel;
@@ -44,6 +49,7 @@ static void vmcb_set_seg_unusable(struct vmcb_seg *seg, uint16_t sel)
     seg->base = 0;
 }
 
+/* Build a segment descriptor for the VMCB from a user descriptor. */
 static void vmcb_set_seg_desc(struct vmcb_seg *seg, const user_desc *gdt,
                               uint16_t gdt_limit, uint16_t sel)
 {
@@ -81,6 +87,7 @@ static void vmcb_set_seg_desc(struct vmcb_seg *seg, const user_desc *gdt,
     seg->base = user_desc_base(desc);
 }
 
+/* Enable SVM in L1 and program the host-save area used by VMRUN. */
 bool svm_l1_enable_svm(void)
 {
     if ( !cpu_has_svm ) {
@@ -93,6 +100,7 @@ bool svm_l1_enable_svm(void)
     return true;
 }
 
+/* Build a minimal long-mode L2 VMCB that reuses the current L1 environment. */
 void svm_l2_build_vmcb(struct vmcb *vmcb, const struct svm_l2_config *cfg)
 {
     struct svm_l2_config default_l2 = {
@@ -147,12 +155,12 @@ void svm_l2_build_vmcb(struct vmcb *vmcb, const struct svm_l2_config *cfg)
     vmcb->ss.limit = 0;
 }
 
-/*
- * Local variables:
- * mode: C
- * c-file-style: "BSD"
- * c-basic-offset: 4
- * tab-width: 4
- * indent-tabs-mode: nil
- * End:
- */
+/* Build an L2 IDT with a single interrupt gate for the supplied vector. */
+void setup_l2_idt(struct vmcb *vmcb, unsigned int vector,
+                  void (*handler)(void))
+{
+    pack_intr_gate(&l2_idt[vector], __KERN_CS, _u(handler), 0, 0);
+
+    vmcb->idtr.base = _u(l2_idt);
+    vmcb->idtr.limit = sizeof(l2_idt) - 1;
+}
